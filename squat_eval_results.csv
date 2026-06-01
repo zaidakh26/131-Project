@@ -1,0 +1,7 @@
+Class,Precision,Recall,F1,Support
+go_deeper,0.343,0.394,0.367,7907
+good_depth,0.407,0.148,0.217,7907
+knee_cave,0.422,0.576,0.487,7907
+torso_lean,0.534,0.599,0.565,7907
+
+Overall accuracy,0.429

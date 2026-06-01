@@ -3,16 +3,14 @@ import mediapipe as mp
 import numpy as np
 import argparse
 import csv
-import os
 from datetime import datetime
 
 mp_pose = mp.solutions.pose
 mp_draw = mp.solutions.drawing_utils
 
-# ── angle helpers ────────────────────────────────────────────────────────────
+# ── helpers ───────────────────────────────────────────────────────────────────
 
 def compute_angle(a, b, c):
-    """Return the angle at joint b given three 2-D points."""
     a, b, c = np.array(a), np.array(b), np.array(c)
     ba = a - b
     bc = c - b
@@ -21,70 +19,82 @@ def compute_angle(a, b, c):
 
 
 def ema(prev, new, alpha=0.2):
-    """Exponential moving average smoothing."""
     if prev is None:
         return new
     return alpha * new + (1 - alpha) * prev
 
 
-# ── feedback logic ────────────────────────────────────────────────────────────
-
-def squat_feedback(knee_angle, hip_angle, knee_x, ankle_x):
+def torso_angle_from_vertical(shoulder, hip):
     """
-    Returns a list of feedback strings based on joint angles.
-    knee_angle : angle at knee (hip-knee-ankle)
-    hip_angle  : angle at hip (shoulder-hip-knee)
-    knee_x     : average x-pixel of both knees
-    ankle_x    : average x-pixel of both ankles
+    Angle of the torso line (shoulder->hip) relative to vertical.
+    0° = perfectly upright, 90° = horizontal.
+    """
+    dy = hip[1] - shoulder[1]   # positive = hip below shoulder (normal)
+    dx = hip[0] - shoulder[0]
+    return np.degrees(np.arctan2(abs(dx), abs(dy)))
+
+
+# ── feedback ──────────────────────────────────────────────────────────────────
+
+def rdl_feedback(hip_angle, torso_angle, knee_angle):
+    """
+    hip_angle    : shoulder-hip-knee angle (hinge depth)
+    torso_angle  : degrees from vertical (back straightness proxy)
+    knee_angle   : hip-knee-ankle (should stay slightly bent, not deeply bent)
     """
     cues = []
 
-    # depth
-    if knee_angle > 100:
-        cues.append("Go deeper")
-    elif knee_angle < 60:
-        cues.append("Don't squat too low")
+    # hip hinge depth — RDL should get to ~45-70° hip angle at bottom
+    if hip_angle > 130:
+        cues.append("Hinge more at hips")
+    elif hip_angle < 30:
+        cues.append("Don't hinge too deep")
     else:
-        cues.append("Good depth")
+        cues.append("Good hip hinge depth")
 
-    # torso lean — hip angle: larger = more upright
-    if hip_angle < 50:
-        cues.append("Stay more upright")
+    # back alignment — torso should be roughly parallel to floor at bottom
+    # at top, torso is upright (~0°). We flag if back is rounded (hard to detect
+    # from 2D side view, so we use torso angle as a proxy for forward lean)
+    if torso_angle > 70:
+        cues.append("Back nearly parallel — keep neutral spine")
+    elif torso_angle < 10 and hip_angle < 80:
+        cues.append("Hinge further forward")
 
-    # knee cave — knees should track over toes (x roughly aligned)
-    if abs(knee_x - ankle_x) > 30:
-        cues.append("Knees out over toes")
+    # knee bend — RDL = slight bend only, not a squat
+    if knee_angle < 130:
+        cues.append("Too much knee bend — keep legs straighter")
+    else:
+        cues.append("Good knee position")
 
     return cues
 
 
 # ── rep counter ───────────────────────────────────────────────────────────────
 
-class RepCounter:
+class RDLRepCounter:
     """
-    Counts reps by detecting angle threshold crossings.
-    A rep = going below DOWN_THRESH then back above UP_THRESH.
+    Rep = hip hinge down (hip_angle drops below HINGE_THRESH)
+    then back up (hip_angle rises above STAND_THRESH).
     """
-    DOWN_THRESH = 100   # knee angle below this = "in squat"
-    UP_THRESH   = 150   # knee angle above this = "standing"
+    HINGE_THRESH = 100
+    STAND_THRESH = 150
 
     def __init__(self):
         self.count = 0
-        self.in_squat = False
+        self.in_hinge = False
 
-    def update(self, knee_angle):
-        if not self.in_squat and knee_angle < self.DOWN_THRESH:
-            self.in_squat = True
-        elif self.in_squat and knee_angle > self.UP_THRESH:
-            self.in_squat = False
+    def update(self, hip_angle):
+        if not self.in_hinge and hip_angle < self.HINGE_THRESH:
+            self.in_hinge = True
+        elif self.in_hinge and hip_angle > self.STAND_THRESH:
+            self.in_hinge = False
             self.count += 1
         return self.count
 
 
-# ── overlay helpers ───────────────────────────────────────────────────────────
+# ── overlay ───────────────────────────────────────────────────────────────────
 
 def draw_text_box(frame, lines, origin, font_scale=0.65, thickness=2):
-    """Draw a semi-transparent box with text lines starting at origin (x, y)."""
     x, y = origin
     line_h = int(font_scale * 30)
     pad = 8
@@ -101,7 +111,7 @@ def draw_text_box(frame, lines, origin, font_scale=0.65, thickness=2):
                     cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, thickness)
 
 
-# ── main processing loop ──────────────────────────────────────────────────────
+# ── main ──────────────────────────────────────────────────────────────────────
 
 def run(source, save_csv=False, out_video=None):
     cap = cv2.VideoCapture(source)
@@ -119,10 +129,11 @@ def run(source, save_csv=False, out_video=None):
         writer = cv2.VideoWriter(out_video, fourcc, fps, (w, h))
 
     log_rows = []
-    rep_counter = RepCounter()
+    rep_counter = RDLRepCounter()
 
-    smooth_knee = None
-    smooth_hip  = None
+    smooth_hip    = None
+    smooth_knee   = None
+    smooth_torso  = None
 
     frame_idx = 0
 
@@ -133,7 +144,6 @@ def run(source, save_csv=False, out_video=None):
             if not ret:
                 break
 
-            # flip only for live webcam
             if isinstance(source, int):
                 frame = cv2.flip(frame, 1)
 
@@ -147,7 +157,6 @@ def run(source, save_csv=False, out_video=None):
                     l = lm[landmark.value]
                     return [l.x * w, l.y * h]
 
-                # key landmarks
                 l_sh  = pt(mp_pose.PoseLandmark.LEFT_SHOULDER)
                 l_hip = pt(mp_pose.PoseLandmark.LEFT_HIP)
                 l_kn  = pt(mp_pose.PoseLandmark.LEFT_KNEE)
@@ -158,56 +167,52 @@ def run(source, save_csv=False, out_video=None):
                 r_kn  = pt(mp_pose.PoseLandmark.RIGHT_KNEE)
                 r_an  = pt(mp_pose.PoseLandmark.RIGHT_ANKLE)
 
-                # raw angles
-                raw_knee = (compute_angle(l_hip, l_kn, l_an) +
-                            compute_angle(r_hip, r_kn, r_an)) / 2
+                raw_hip   = (compute_angle(l_sh, l_hip, l_kn) +
+                             compute_angle(r_sh, r_hip, r_kn)) / 2
 
-                raw_hip  = (compute_angle(l_sh, l_hip, l_kn) +
-                            compute_angle(r_sh, r_hip, r_kn)) / 2
+                raw_knee  = (compute_angle(l_hip, l_kn, l_an) +
+                             compute_angle(r_hip, r_kn, r_an)) / 2
 
-                # EMA smoothing
-                smooth_knee = ema(smooth_knee, raw_knee)
-                smooth_hip  = ema(smooth_hip,  raw_hip)
+                # use average of left/right torso angle
+                raw_torso = (torso_angle_from_vertical(l_sh, l_hip) +
+                             torso_angle_from_vertical(r_sh, r_hip)) / 2
 
-                # rep count
-                reps = rep_counter.update(smooth_knee)
+                smooth_hip   = ema(smooth_hip,   raw_hip)
+                smooth_knee  = ema(smooth_knee,  raw_knee)
+                smooth_torso = ema(smooth_torso, raw_torso)
 
-                # knee / ankle x for cave detection
-                avg_kn_x  = (l_kn[0] + r_kn[0]) / 2
-                avg_an_x  = (l_an[0] + r_an[0]) / 2
+                reps = rep_counter.update(smooth_hip)
+                cues = rdl_feedback(smooth_hip, smooth_torso, smooth_knee)
 
-                # feedback
-                cues = squat_feedback(smooth_knee, smooth_hip, avg_kn_x, avg_an_x)
-
-                # skeleton overlay
                 mp_draw.draw_landmarks(
                     frame, results.pose_landmarks, mp_pose.POSE_CONNECTIONS,
-                    mp_draw.DrawingSpec(color=(245, 117, 66), thickness=2, circle_radius=2),
-                    mp_draw.DrawingSpec(color=(245, 66, 230), thickness=2))
+                    mp_draw.DrawingSpec(color=(66, 245, 200), thickness=2, circle_radius=2),
+                    mp_draw.DrawingSpec(color=(66, 117, 245), thickness=2))
 
-                # angle annotations on joints
+                # joint angle annotations
                 for pt_pos, label in [
-                    (l_kn, f"{int(smooth_knee)}°"),
-                    (l_hip, f"hip {int(smooth_hip)}°")
+                    (l_hip, f"hip {int(smooth_hip)}°"),
+                    (l_kn,  f"knee {int(smooth_knee)}°"),
+                    (l_sh,  f"torso {int(smooth_torso)}°"),
                 ]:
                     cv2.putText(frame, label,
                                 (int(pt_pos[0]) + 5, int(pt_pos[1]) - 5),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
 
-                # HUD
                 hud_lines = [f"Reps: {reps}",
-                             f"Knee: {int(smooth_knee)}",
-                             f"Hip:  {int(smooth_hip)}"] + cues
+                             f"Hip:   {int(smooth_hip)}",
+                             f"Knee:  {int(smooth_knee)}",
+                             f"Torso: {int(smooth_torso)}"] + cues
                 draw_text_box(frame, hud_lines, (20, 30))
 
-                # csv logging
                 if save_csv:
                     log_rows.append({
                         "frame": frame_idx,
-                        "raw_knee": round(raw_knee, 2),
-                        "smooth_knee": round(smooth_knee, 2),
                         "raw_hip": round(raw_hip, 2),
                         "smooth_hip": round(smooth_hip, 2),
+                        "raw_knee": round(raw_knee, 2),
+                        "smooth_knee": round(smooth_knee, 2),
+                        "torso_angle": round(smooth_torso, 2),
                         "reps": reps,
                         "feedback": "|".join(cues)
                     })
@@ -215,9 +220,8 @@ def run(source, save_csv=False, out_video=None):
             if writer:
                 writer.write(frame)
 
-            cv2.imshow("Squat Tracker", frame)
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord("q"):
+            cv2.imshow("RDL Tracker", frame)
+            if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
 
             frame_idx += 1
@@ -228,8 +232,8 @@ def run(source, save_csv=False, out_video=None):
     cv2.destroyAllWindows()
 
     if save_csv and log_rows:
-        ts  = datetime.now().strftime("%Y%m%d_%H%M%S")
-        csv_path = f"squat_log_{ts}.csv"
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        csv_path = f"rdl_log_{ts}.csv"
         with open(csv_path, "w", newline="") as f:
             writer_csv = csv.DictWriter(f, fieldnames=log_rows[0].keys())
             writer_csv.writeheader()
@@ -239,10 +243,8 @@ def run(source, save_csv=False, out_video=None):
     print(f"[DONE] Total reps counted: {rep_counter.count}")
 
 
-# ── CLI ───────────────────────────────────────────────────────────────────────
-
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Real-time squat form analyzer")
+    parser = argparse.ArgumentParser(description="Real-time RDL form analyzer")
     parser.add_argument("--source", default="0",
                         help="0 for webcam, or path to video file")
     parser.add_argument("--save-csv", action="store_true",
