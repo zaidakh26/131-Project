@@ -1,9 +1,9 @@
 video,exercise,true,pred,correct
-/Users/henakhan/Downloads/clips/rdl/rdl_good_1.mp4,rdl,good,good,True
-/Users/henakhan/Downloads/clips/rdl/rdl_good_2.mp4,rdl,good,too_much_knee_bend,False
-/Users/henakhan/Downloads/clips/rdl/rdl_bad_1.mp4,rdl,too_much_knee_bend,too_much_knee_bend,True
-/Users/henakhan/Downloads/clips/rdl/rdl_bad_2.mp4,rdl,too_much_knee_bend,too_much_knee_bend,True
-/Users/henakhan/Downloads/clips/rdl/rdl_bad_3.mp4,rdl,too_much_knee_bend,good,False
+/Users/henakhan/131-Project/clips/rdl/rdl_good_1.mp4,rdl,good,good,True
+/Users/henakhan/131-Project/clips/rdl/rdl_good_2.mp4,rdl,good,too_much_knee_bend,False
+/Users/henakhan/131-Project/clips/rdl/rdl_bad_1.mp4,rdl,too_much_knee_bend,too_much_knee_bend,True
+/Users/henakhan/131-Project/clips/rdl/rdl_bad_2.mp4,rdl,too_much_knee_bend,too_much_knee_bend,True
+/Users/henakhan/131-Project/clips/rdl/rdl_bad_3.mp4,rdl,too_much_knee_bend,good,False
 
 
 Class,Precision,Recall,F1
