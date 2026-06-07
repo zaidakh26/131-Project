@@ -9,8 +9,6 @@ from datetime import datetime
 mp_pose = mp.solutions.pose
 mp_draw = mp.solutions.drawing_utils
 
-# ── helpers ───────────────────────────────────────────────────────────────────
-
 def compute_angle(a, b, c):
     a, b, c = np.array(a), np.array(b), np.array(c)
     ba = a - b
@@ -36,9 +34,6 @@ def elbow_flare_angle(shoulder, elbow, hip):
         np.linalg.norm(upper_arm) * np.linalg.norm(torso_vec) + 1e-9)
     return np.degrees(np.arccos(np.clip(cosine, -1.0, 1.0)))
 
-
-# ── feedback ──────────────────────────────────────────────────────────────────
-
 def bench_feedback(elbow_angle, flare_angle, wrist_elbow_offset_px):
     """
     elbow_angle           : shoulder-elbow-wrist angle (depth of press)
@@ -47,7 +42,7 @@ def bench_feedback(elbow_angle, flare_angle, wrist_elbow_offset_px):
     """
     cues = []
 
-    # press depth — elbow should reach ~90° at bottom
+    
     if elbow_angle > 110:
         cues.append("Lower the bar further")
     elif elbow_angle < 60:
@@ -55,7 +50,7 @@ def bench_feedback(elbow_angle, flare_angle, wrist_elbow_offset_px):
     else:
         cues.append("Good press depth")
 
-    # elbow flare — ideally 45–75° relative to torso
+    
     if flare_angle > 85:
         cues.append("Tuck elbows in more")
     elif flare_angle < 30:
@@ -63,14 +58,14 @@ def bench_feedback(elbow_angle, flare_angle, wrist_elbow_offset_px):
     else:
         cues.append("Good elbow angle")
 
-    # wrist stacking — wrist should track over elbow
+    
     if wrist_elbow_offset_px > 40:
         cues.append("Stack wrists over elbows")
 
     return cues
 
 
-# ── rep counter ───────────────────────────────────────────────────────────────
+
 
 class BenchRepCounter:
     """
@@ -92,7 +87,6 @@ class BenchRepCounter:
         return self.count
 
 
-# ── overlay ───────────────────────────────────────────────────────────────────
 
 def draw_text_box(frame, lines, origin, font_scale=0.65, thickness=2):
     x, y = origin
@@ -111,7 +105,6 @@ def draw_text_box(frame, lines, origin, font_scale=0.65, thickness=2):
                     cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, thickness)
 
 
-# ── main ──────────────────────────────────────────────────────────────────────
 
 def run(source, save_csv=False, out_video=None):
     cap = cv2.VideoCapture(source)
