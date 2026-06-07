@@ -9,7 +9,6 @@ from datetime import datetime
 mp_pose = mp.solutions.pose
 mp_draw = mp.solutions.drawing_utils
 
-# ── angle helpers ────────────────────────────────────────────────────────────
 
 def compute_angle(a, b, c):
     """Return the angle at joint b given three 2-D points."""
@@ -27,7 +26,7 @@ def ema(prev, new, alpha=0.2):
     return alpha * new + (1 - alpha) * prev
 
 
-# ── feedback logic ────────────────────────────────────────────────────────────
+
 
 def squat_feedback(knee_angle, hip_angle, knee_x, ankle_x):
     """
@@ -47,18 +46,18 @@ def squat_feedback(knee_angle, hip_angle, knee_x, ankle_x):
     else:
         cues.append("Good depth")
 
-    # torso lean — hip angle: larger = more upright
+    # torso lean 
     if hip_angle < 50:
         cues.append("Stay more upright")
 
-    # knee cave — knees should track over toes (x roughly aligned)
+    # knee cave 
     if abs(knee_x - ankle_x) > 30:
         cues.append("Knees out over toes")
 
     return cues
 
 
-# ── rep counter ───────────────────────────────────────────────────────────────
+
 
 class RepCounter:
     """
@@ -81,7 +80,7 @@ class RepCounter:
         return self.count
 
 
-# ── overlay helpers ───────────────────────────────────────────────────────────
+
 
 def draw_text_box(frame, lines, origin, font_scale=0.65, thickness=2):
     """Draw a semi-transparent box with text lines starting at origin (x, y)."""
@@ -101,7 +100,7 @@ def draw_text_box(frame, lines, origin, font_scale=0.65, thickness=2):
                     cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, thickness)
 
 
-# ── main processing loop ──────────────────────────────────────────────────────
+
 
 def run(source, save_csv=False, out_video=None):
     cap = cv2.VideoCapture(source)
@@ -147,7 +146,7 @@ def run(source, save_csv=False, out_video=None):
                     l = lm[landmark.value]
                     return [l.x * w, l.y * h]
 
-                # key landmarks
+                
                 l_sh  = pt(mp_pose.PoseLandmark.LEFT_SHOULDER)
                 l_hip = pt(mp_pose.PoseLandmark.LEFT_HIP)
                 l_kn  = pt(mp_pose.PoseLandmark.LEFT_KNEE)
@@ -158,7 +157,7 @@ def run(source, save_csv=False, out_video=None):
                 r_kn  = pt(mp_pose.PoseLandmark.RIGHT_KNEE)
                 r_an  = pt(mp_pose.PoseLandmark.RIGHT_ANKLE)
 
-                # raw angles
+                
                 raw_knee = (compute_angle(l_hip, l_kn, l_an) +
                             compute_angle(r_hip, r_kn, r_an)) / 2
 
@@ -169,14 +168,14 @@ def run(source, save_csv=False, out_video=None):
                 smooth_knee = ema(smooth_knee, raw_knee)
                 smooth_hip  = ema(smooth_hip,  raw_hip)
 
-                # rep count
+               
                 reps = rep_counter.update(smooth_knee)
 
-                # knee / ankle x for cave detection
+                
                 avg_kn_x  = (l_kn[0] + r_kn[0]) / 2
                 avg_an_x  = (l_an[0] + r_an[0]) / 2
 
-                # feedback
+                
                 cues = squat_feedback(smooth_knee, smooth_hip, avg_kn_x, avg_an_x)
 
                 # skeleton overlay
@@ -239,7 +238,7 @@ def run(source, save_csv=False, out_video=None):
     print(f"[DONE] Total reps counted: {rep_counter.count}")
 
 
-# ── CLI ───────────────────────────────────────────────────────────────────────
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Real-time squat form analyzer")
