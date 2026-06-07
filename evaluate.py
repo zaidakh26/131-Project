@@ -124,6 +124,83 @@ def evaluate_clips(labels_path, out_csv):
     def ema(prev, new, alpha=0.2):
         return new if prev is None else alpha * new + (1 - alpha) * prev
 
+    def elbow_flare_angle(shoulder, elbow, hip):
+        upper_arm = np.array(elbow) - np.array(shoulder)
+        torso_vec = np.array(hip)   - np.array(shoulder)
+        cosine = np.dot(upper_arm, torso_vec) / (
+            np.linalg.norm(upper_arm) * np.linalg.norm(torso_vec) + 1e-9)
+        return np.degrees(np.arccos(np.clip(cosine, -1.0, 1.0)))
+
+    def analyze_bench_clip(video_path):
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            print(f"[WARN] Cannot open {video_path}")
+            return None
+
+        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        elbow_vals, flare_vals = [], []
+        n_frames = 0
+
+        with mp_pose.Pose(min_detection_confidence=0.5,
+                          min_tracking_confidence=0.5) as pose:
+            while cap.isOpened():
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                rgb     = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                results = pose.process(rgb)
+                if not results.pose_landmarks:
+                    continue
+                lm = results.pose_landmarks.landmark
+
+                def pt(landmark):
+                    l = lm[landmark.value]
+                    return [l.x * w, l.y * h]
+
+                l_sh  = pt(mp_pose.PoseLandmark.LEFT_SHOULDER)
+                l_el  = pt(mp_pose.PoseLandmark.LEFT_ELBOW)
+                l_wr  = pt(mp_pose.PoseLandmark.LEFT_WRIST)
+                l_hip = pt(mp_pose.PoseLandmark.LEFT_HIP)
+                r_sh  = pt(mp_pose.PoseLandmark.RIGHT_SHOULDER)
+                r_el  = pt(mp_pose.PoseLandmark.RIGHT_ELBOW)
+                r_wr  = pt(mp_pose.PoseLandmark.RIGHT_WRIST)
+                r_hip = pt(mp_pose.PoseLandmark.RIGHT_HIP)
+
+                # Only analyze frames where the person is lying down —
+                # instructional videos mix standing/talking with bench reps,
+                # which pollutes angle measurements. When lying, shoulder y ≈ hip y.
+                avg_sh_y  = (l_sh[1] + r_sh[1]) / 2
+                avg_hip_y = (l_hip[1] + r_hip[1]) / 2
+                if abs(avg_sh_y - avg_hip_y) > 0.25 * h:
+                    continue
+
+                raw_elbow = (compute_angle(l_sh, l_el, l_wr) +
+                             compute_angle(r_sh, r_el, r_wr)) / 2
+                raw_flare = (elbow_flare_angle(l_sh, l_el, l_hip) +
+                             elbow_flare_angle(r_sh, r_el, r_hip)) / 2
+
+                elbow_vals.append(raw_elbow)
+                flare_vals.append(raw_flare)
+                n_frames += 1
+
+        cap.release()
+
+        if not elbow_vals:
+            return None
+
+        min_elbow = min(elbow_vals)
+        avg_flare = np.mean(flare_vals)
+
+        # Thresholds mirror bench_tracker.py's bench_feedback() —
+        # not tuned to test clips.
+        if avg_flare > 85:
+            return "elbow_flare"
+        elif min_elbow > 110:
+            return "too_shallow"
+        else:
+            return "good"
+
     def analyze_clip(video_path, exercise):
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
@@ -219,6 +296,9 @@ def evaluate_clips(labels_path, out_csv):
                 return "go_deeper"
             else:
                 return "good"
+
+        if exercise == "bench":
+            return analyze_bench_clip(video_path)
 
         return max(issue_votes, key=issue_votes.get)
 

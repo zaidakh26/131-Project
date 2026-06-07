@@ -1,0 +1,12 @@
+video,exercise,true,pred,correct
+/Users/henakhan/131-Project/clips/bench/bench_good_1.mp4,bench,good,good,True
+/Users/henakhan/131-Project/clips/bench/bench_bad_elbow_flare_2.mp4,bench,elbow_flare,elbow_flare,True
+/Users/henakhan/131-Project/clips/bench/bench_bad_shallow_1.mp4,bench,too_shallow,good,False
+
+
+Class,Precision,Recall,F1
+elbow_flare,1.000,1.000,1.000
+good,0.500,1.000,0.667
+too_shallow,0.000,0.000,0.000
+
+Overall accuracy,0.667
