@@ -18,8 +18,6 @@ import csv
 import os
 from collections import defaultdict
 
-# ── Kaggle dataset label mapping ──────────────────────────────────────────────
-# Labels 4 (heels off) and 5 (asymmetric) are skipped — not detected by our system
 
 KAGGLE_LABEL_MAP = {
     0: "good_depth",
@@ -28,7 +26,6 @@ KAGGLE_LABEL_MAP = {
     3: "knee_cave",
 }
 
-# ── prediction logic (mirrors squat_tracker.py thresholds) ───────────────────
 
 def predict_squat(knee_angle, torso_lean, knee_lateral):
     if torso_lean > 108:
@@ -40,7 +37,6 @@ def predict_squat(knee_angle, torso_lean, knee_lateral):
     else:
         return "good_depth"
 
-# ── metrics ───────────────────────────────────────────────────────────────────
 
 def compute_metrics(true_labels, pred_labels):
     classes = sorted(set(true_labels) | set(pred_labels))
@@ -68,7 +64,6 @@ def print_metrics(metrics, overall_acc, true_labels):
     print("-" * 65)
     print(f"{'Overall accuracy':<25} {overall_acc:>10.3f}")
 
-# ── dataset mode (Kaggle CSV) ─────────────────────────────────────────────────
 
 def evaluate_dataset(csv_path, out_csv):
     true_labels = []
@@ -79,7 +74,7 @@ def evaluate_dataset(csv_path, out_csv):
         for row in reader:
             label_int = int(row["label"])
             if label_int not in KAGGLE_LABEL_MAP:
-                continue  # skip heels_off (4) and asymmetric (5)
+                continue  
 
             true_lbl   = KAGGLE_LABEL_MAP[label_int]
             knee_angle  = (float(row["left_knee_angle"]) + float(row["right_knee_angle"])) / 2
@@ -107,7 +102,6 @@ def evaluate_dataset(csv_path, out_csv):
 
     print(f"\n[INFO] Results saved to {out_csv}")
 
-# ── video clip mode (original) ────────────────────────────────────────────────
 
 def evaluate_clips(labels_path, out_csv):
     import cv2
@@ -167,9 +161,7 @@ def evaluate_clips(labels_path, out_csv):
                 r_wr  = pt(mp_pose.PoseLandmark.RIGHT_WRIST)
                 r_hip = pt(mp_pose.PoseLandmark.RIGHT_HIP)
 
-                # Only analyze frames where the person is lying down —
-                # instructional videos mix standing/talking with bench reps,
-                # which pollutes angle measurements. When lying, shoulder y ≈ hip y.
+        
                 avg_sh_y  = (l_sh[1] + r_sh[1]) / 2
                 avg_hip_y = (l_hip[1] + r_hip[1]) / 2
                 if abs(avg_sh_y - avg_hip_y) > 0.25 * h:
@@ -192,8 +184,7 @@ def evaluate_clips(labels_path, out_csv):
         min_elbow = min(elbow_vals)
         avg_flare = np.mean(flare_vals)
 
-        # Thresholds mirror bench_tracker.py's bench_feedback() —
-        # not tuned to test clips.
+        
         if avg_flare > 85:
             return "elbow_flare"
         elif min_elbow > 110:
@@ -267,12 +258,10 @@ def evaluate_clips(labels_path, out_csv):
             return None
 
         if exercise == "squat" and knee_vals:
-            # Use minimum knee angle (deepest point) rather than majority vote —
-            # standing frames dominate otherwise and always vote "go_deeper".
+            
             min_knee = min(knee_vals)
             knee_cave_votes = issue_votes["knee_cave"]
-            # Only check torso lean on near-standing frames (knee > 140°) to avoid
-            # false positives at the bottom of a deep squat where torso naturally leans.
+            
             standing_hips = [h for k, h in zip(knee_vals, hip_vals) if k > 140]
             torso_leaning = len(standing_hips) > 0 and min(standing_hips) < 50
             if knee_cave_votes > len(knee_vals) * 0.3:
@@ -285,9 +274,7 @@ def evaluate_clips(labels_path, out_csv):
                 return "good_depth"
 
         if exercise == "rdl" and knee_vals:
-            # Use deepest hinge point rather than majority vote —
-            # most frames are at the upright standing position which
-            # would always vote "go_deeper" with per-frame logic.
+            
             min_hip  = min(hip_vals)
             min_knee = min(knee_vals)
             if min_knee < 110:
@@ -351,7 +338,7 @@ def evaluate_clips(labels_path, out_csv):
 
     print(f"\n[INFO] Results saved to {out_csv}")
 
-# ── main ──────────────────────────────────────────────────────────────────────
+
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate squat form detection precision/recall")
