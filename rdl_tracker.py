@@ -8,7 +8,6 @@ from datetime import datetime
 mp_pose = mp.solutions.pose
 mp_draw = mp.solutions.drawing_utils
 
-# ── helpers ───────────────────────────────────────────────────────────────────
 
 def compute_angle(a, b, c):
     a, b, c = np.array(a), np.array(b), np.array(c)
@@ -29,12 +28,12 @@ def torso_angle_from_vertical(shoulder, hip):
     Angle of the torso line (shoulder->hip) relative to vertical.
     0° = perfectly upright, 90° = horizontal.
     """
-    dy = hip[1] - shoulder[1]   # positive = hip below shoulder (normal)
+    dy = hip[1] - shoulder[1]   
     dx = hip[0] - shoulder[0]
     return np.degrees(np.arctan2(abs(dx), abs(dy)))
 
 
-# ── feedback ──────────────────────────────────────────────────────────────────
+
 
 def rdl_feedback(hip_angle, torso_angle, knee_angle):
     """
@@ -44,7 +43,6 @@ def rdl_feedback(hip_angle, torso_angle, knee_angle):
     """
     cues = []
 
-    # hip hinge depth — RDL should get to ~45-70° hip angle at bottom
     if hip_angle > 130:
         cues.append("Hinge more at hips")
     elif hip_angle < 30:
@@ -69,7 +67,7 @@ def rdl_feedback(hip_angle, torso_angle, knee_angle):
     return cues
 
 
-# ── rep counter ───────────────────────────────────────────────────────────────
+
 
 class RDLRepCounter:
     """
@@ -92,7 +90,6 @@ class RDLRepCounter:
         return self.count
 
 
-# ── overlay ───────────────────────────────────────────────────────────────────
 
 def draw_text_box(frame, lines, origin, font_scale=0.65, thickness=2):
     x, y = origin
@@ -111,7 +108,6 @@ def draw_text_box(frame, lines, origin, font_scale=0.65, thickness=2):
                     cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, thickness)
 
 
-# ── main ──────────────────────────────────────────────────────────────────────
 
 def run(source, save_csv=False, out_video=None):
     cap = cv2.VideoCapture(source)
